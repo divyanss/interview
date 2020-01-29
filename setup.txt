@@ -1,0 +1,180 @@
+Mark Runyon works as a principal consultant for Improving. He focuses on systems architecture and development of enterprise web and mobile applications. As a full stack programmer, he primarily works in the Microsoft stack, leveraging cloud technologies in Azure and AWS. 
+
+brew install python3 git
+brew install docker    # for docker we can install docker for mac also 
+brew install docker-compose
+brew install docker-machine
+pip3 install ansible -upgrade
+pip3 install boto boto3   #boto and boto3 are offical python package to interact with AWS
+pip3 install awscli  # to interact with AWS command line 
+github, dockerhub and aws account
+
+//create docker machine using any of the virtualization software  https://docs.docker.com/machine/reference/create/ 
+docker-machine create --driver virtualbox --virtualbox-cpu-count "4" \
+--virtualbox-disk-size "60000" --virtualbox-memory "8182" docker01     //the docker machine will download the latest version of the boot2docker image      
+//see how to connect your Docker Client to the Docker Engine running on this virtual machine, run: 
+docker-machine env docker01 
+# Run this command to configure your shell: 
+# eval $(docker-machine env docker01)
+docker pull ubuntu
+docker-machine ip docker01   // 192.168.99.105
+docker-machine ssh docker01   
+cd /Users/mobileopsbp/   // docker-machine automatically shares my home folders on local host to docker host
+docker-machine restart docker01  // stop and start 
+docker-machine ls 
+
+
+installing mysql
+brew install mysql@5.6
+start 
+/usr/local/opt/mysql@5.6/bin/mysql.server start
+
+
+This is the problem with your $PATH:
+$PATH is where the shell searches for command files. Folders to search in need to be separated with a colon. And so you want /usr/local/mysql/bin/ in your path but instead it searches in /usr/local//usr/local/mysql/bin/private/var/mysql/private/var/mysql/bin, which probably doesn't exist.
+Instead you want ${PATH}:/usr/local/mysql/bin.
+So do export PATH=${PATH}:/usr/local/opt/mysql@5.6/bin/.
+If you want this to be run every time you open terminal put it in the file .bash_profile, which is run when Terminal opens.
+
+configure the mysql
+mysql_secure_installation
+login the database
+mysql -u root -p
+create database
+create database todobackend;
+grant permission when running test to create and destroy database 
+GRANT ALL PRIVILEGES ON *.* TO 'todo'@'localhost' identified by 'password';   here password is 'password'
+
+setting up environment variables in mac use export command
+
+to run manage.py refering to differnt settings
+python2 manage.py test --setting=todobackend.settings.test
+
+pip install django-nose // https://pypi.org/project/django-nose/
+pip install pinocchio
+
+
+client 
+brew install nodejs
+npm init  - configure the project
+npm install bluebird chai chai-as-promised mocha superagent superagent-promise mocha-jenkins-reporter --save
+npm install bluebird@3.1.5 chai@3.5.0 chai-as-promised@5.2.0 mocha@2.4.5 superagent@1.7.2 superagent-promise@1.1.0 mocha-jenkins-reporter@0.1.9 --save
+
+// adds the packages in package.jason file with --save option
+to run mocha test command goto 
+
+node node_modules/.bin/mocha  
+
+https://stackoverflow.com/questions/9722407/how-do-you-install-and-run-mocha-the-node-js-testing-module-getting-mocha-co
+
+# build the image
+docker build -t divyanss/todobackend-base .
+docker images
+# run the container and imediatly remove it 
+docker run --rm divyanss/todobackend-base ps 
+# complex version of docker build
+docker build -t todobackend-dev -f docker/dev/Dockerfile .
+#to see how much time it take to run the container 
+time docker run --rm todobackend-dev
+#to build the contain with volume container and overrides the entry point 
+docker run -v /tmp/cache:/cache --entrypoint true --name cache todobackend-dev
+#to pass an enrironment variable to docker use -e
+docker run -e DJANGO_SETTINGS_MODULE=todobackend.settings.test --rm --volumes-from cache todobackend-dev
+# to run docker compose navigate to the folder and run below with secvice name
+docker-compose up <name of the service>
+# to check logs
+docker-compose log db
+# to kill 
+docker-compase kill
+# to remove contianers 
+docker-compase rm -f
+
+
+Test 
+
+docker-compose build, up agent, up test, up builder
+
+docker build -t divyanss/todobackend=specs .
+
+Release 
+docker-compose build, up agent,
+
+Copy the static file to webroot
+docker-compose run --rm app manage.py collectstatic --no-input   #to say yes 
+
+To make migrations 
+
+docker-compose run --rm app manage.py migrate --no-input
+
+ docker-compose up nginx
+  docker-compose up test, docker-compose up nginx
+
+Tag the image now 
+
+make file to bring it all together 
+
+make test, make build, make release, make clean
+
+to clean the dangalin images manually -
+docker rmi $(docker images -f dangling=tru -q)
+
+to clean dangling volues 
+docker volume rm $(docker volume ls -f dangling=true -q)
+
+export DOCKER_USER=divyanss
+export DOCKER_EMAIL=divyanshsaxena00@gmail.com
+export DOCKER_PASSWORD= Apple@00
+
+tag the images 
+
+make buildtag 0.1 $(git rev-parse --abbrev-ref HEAD)
+
+make login 
+make publish 
+
+install Jenkins 
+
+docker volume create --name jenkins_home
+docker-compose up -d
+
+cat /var/jenkins_home/secrets/initialAdminPassword
+26a42c03a04341eeac31480dbbcb0f31
+
+
+node {
+    git 'https://github.com/divyanss/todobackend.git'
+    
+    try {
+        stage 'Run unit/integration test'
+        sh 'make test'
+        
+        stage 'Create release environment and run acceptance tests'
+        sh 'make release'
+        
+        stage 'Tag and publish release image'
+        sh "make tag latest \$(git rev-parse --short HEAD) \$(git tag --points-at HEAD"
+        sh "make buildtag master \$(git tag --points-at HEAD"
+        withEnv([ "DOCKER_USER=${DOCKER_USER}",
+                  "DOCKER_EMAIL=${DOCKER_EMAIL}",
+                  "DOCKER_PASSWORD=${DOCKER_PASSWORD}"]) {
+                      sh 'make login'
+                    }
+                  sh "make publish"
+    }
+    finally {
+        stage 'Collect test reports'
+        step([$class: 'JUnitResultArchiver',testResult: '**/reports/*.xml'])
+        
+        stage 'Clean UP'
+        sh 'make clean'
+        sh 'make logout'
+    }
+}
+
+
+Log into root into jenkins 
+docker exec -it -u root ed778c3935c2 /bin/bash
+
+restart the docker 
+
+service docker start/restart
