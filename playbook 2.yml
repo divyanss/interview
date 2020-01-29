@@ -1,0 +1,12 @@
+---
+- hosts: localhost
+  gather_facts: false   # this should be done with caution
+  tasks:
+  - name: "Ensure the file is copied the bat package is is inatllled"
+    copy:
+      src: "./setup.txt"
+      dest: "/tmp/etupansible.txt"
+  - name: "install the bat home brew package"
+    homebrew:
+      name: bat
+      state: latest

@@ -1,0 +1,177 @@
+az login  # loggin into Azure Account
+az account show --output table   # Show the Subscripton
+az group list --output table # list all the resource group
+az group create -n letskuberg --location westeurope # create a resource group
+
+# Creating Azure Container Registry (acr)
+az acr --help
+# create ACR 
+az acr create --name letskuberg --resource-group letskuberg --sku Basic --location westeurope
+az acr list -o table  # list ACR 
+az acr login --name letskuberg
+
+# Docker Tag the image 
+docker tag letskube:local letskuberg.azurecr.io/letskube:v1  #  We need to tag the image with login name in ACRlocal and shared image have same image ID
+docker push letskuberg.azurecr.io/letskube:v1 
+
+az acr list -o table   # list the image in ACR 
+
+#NAME        RESOURCE GROUP    LOCATION    SKU    LOGIN SERVER           CREATION DATE         ADMIN ENABLED
+#----------  ----------------  ----------  -----  ---------------------  --------------------  ---------------
+#letskuberg  letskuberg        westeurope  Basic  letskuberg.azurecr.io  2019-11-14T17:29:17Z
+
+# Use AKS Azure Kubernetes Service  to provision Cluster
+# But first we need to create a Azure Service Principal 
+# An Azure service principal is a security identity used by user-created apps, services, and automation tools
+# to access specific Azure resources. Think of it as a 'user identity' 
+#(login and password or certificate) with a specific role, and tightly controlled 
+#permissions to access your resources
+
+#Creating Service Principal in Active Directory to access Azure resource
+
+az ad sp create-for-rbac --skip-assignment
+
+#Display name: azure-cli-2019-11-14-20-24-35
+#Application (client) ID : d42cb699-23d3-46f2-ad14-64c9b6d4ce6f
+#Directory (tenant) ID : 995c9aed-3dec-4340-b0c6-cb225854d857
+#Object ID : 8ff9fcae-d418-494e-b7c7-dfeb32d6172f
+#password : 517fd250-4a33-4442-8666-41588b252569
+
+# get the ACR ID which we created 
+$acrID = az acr show --name letskuberg --resource-group letskuberg --query "id" --output tsv
+
+# grant Reader role to AKS cluster
+
+az role assignment create --assignee "a9b264f1-cfc9-4b93-9eb4-6e9d52f819c2" --role Reader --scope $acrID
+
+# create AKS cluster you can verify that in Azure portal too
+
+az aks create --name letskubeakscluster --resource-group letskuberg --node-count 1 --generate-ssh-keys --service-principal "d42cb699-23d3-46f2-ad14-64c9b6d4ce6f" --client-secret "517fd250-4a33-4442-8666-41588b252569
+
+# once the cluster is created as AKS we need to configure the client which will use the AKS 
+# to configure client we need to have kubectl and set the current context to the AKS cluster 
+# there are several ways to do so 
+#If I have this correct, when you run "az aks get-credentials --name letskubeakscluster --resource-group letskuberg" a config file is 
+#placed a ~/.kube which includes the pieces necessary to connect to the cluster. 
+#If you want to connect to a second AKS cluster you have two options.
+#Delete the ~/.kube/config file and then run az aks get-credentials again
+# Do not delete the file, but run az aks get-credentials again. This will add the context of the second cluster to the config file.
+az aks get-credentials --name letskubeakscluster --resource-group letskuberg
+az aks show
+# Deploy the servcie now for that we would need the .yml file
+# get the contain name
+
+az acr list
+
+# belwo is the yml file
+
+kubectl apply -f lestkube.yml
+# this will create the deployment, Replica Set, pods and service
+# to get the external IP 
+kubectl get svc letskube-service  
+
+#NAME               TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)          AGE
+#letskube-service   LoadBalancer   10.0.173.148   52.157.228.71   5000:31121/TCP   21m
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: letskube-deployment
+  labels:
+    app: letskube
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: letskube
+      labels:
+        app: letskube
+    spec:
+      containers:
+      - name: letskube
+        image: letskubedemo.azurecr.io/letskube:latest   # make sure this is from acr
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+  selector:
+    matchLabels:
+      app: letskube
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: letskube-service
+spec:
+  selector:
+    app: letskube
+  ports:
+    - port: 5000
+  type: LoadBalancer   # if a single cluster this could be Nodeport as well
+
+
+# Sacalling the Azure K8 Cluster
+
+az aks scale --resource-group letskuberg --name letskubeakscluster --node-count 2 
+
+
+# Scaling up pods
+kubectl get deployments # get the deployment firts
+
+
+
+# Upgrading the image 
+#change the Web app and build the docker file locally  
+
+docker build . -t letskuberg.azurecr.io/letskube:v2
+kubectl scale --replicas=7 deployment/letskube-deployment 
+
+# run and test the new docker image
+
+docker run -d -p 5000:5000 letskuberg.azurecr.io/letskube:v2
+
+
+While pushing the image to the ACR it might throw an error for authentication required
+there are 2 way to solev this 1. assign servcie principal 2. login acr
+
+az acr login --name letskuberg
+
+#!/bin/bash
+
+# Modify for your environment. The ACR_NAME is the name of your Azure Container
+# Registry, and the SERVICE_PRINCIPAL_ID is the service principal's 'appId' or
+# one of its 'servicePrincipalNames' values.
+ACR_NAME=letskuberg
+SERVICE_PRINCIPAL_ID='d42cb699-23d3-46f2-ad14-64c9b6d4ce6f'
+
+# Populate value required for subsequent command args
+ACR_REGISTRY_ID=$(az acr show --name $ACR_NAME --query id --output tsv)
+
+# Assign the desired role to the service principal. Modify the '--role' argument
+# value as desired:
+# acrpull:     pull only
+# acrpush:     push and pull
+# owner:       push, pull, and assign roles
+az role assignment create --assignee $SERVICE_PRINCIPAL_ID --scope $ACR_REGISTRY_ID --role AcrPush
+
+# now the image is pusehd to ACR let delpy it to AKS
+# update the yml file with new conttainer image
+
+kubectl apply -f lestkube.yml --record   # record is very important this will be useful for rollbacks
+  
+kubectl rollout status
+kubectl get deployment letskube-deployment
+kubectl rollout history deployment letskube-deployment
+
+#deployment.extensions/letskube-deployment 
+#REVISION  CHANGE-CAUSE
+#1         <none>
+#2         kubectl apply --filename=lestkube.yml --record=true
+
+kubectl get svc
+
+# get the ip and port and test the IP
+
+# roll back 
+kubectl rollout undo deployment letskube-deployment --to-revision=1
+
+

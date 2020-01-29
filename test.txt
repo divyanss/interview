@@ -1,0 +1,11 @@
+
+Azure.azcli
+K8
+bash.sh
+commands.txt
+deploy.yml
+lestkube.yml
+pod.yml
+rc.yml
+srv.yml
+test.txt
